@@ -1,0 +1,21 @@
+:root {
+    font-family: sans-serif;
+}
+
+body {
+    margin: 0;
+}
+
+canvas {
+    position: absolute;
+}
+
+#landing {
+    background-color: #0000;
+    border: none;
+    text-align: center;
+}
+
+#landing::backdrop {
+    background-color: #0008;
+}

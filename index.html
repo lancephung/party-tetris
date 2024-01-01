@@ -7,7 +7,14 @@
     <title>Vite + TS</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <dialog id="landing">
+        <form onsubmit="return false;">
+          <h1>Party Tetris</h1>
+          <input type="text" placeholder="Username">
+        </form>
+      </dialog>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

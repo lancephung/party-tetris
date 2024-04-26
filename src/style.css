@@ -8,12 +8,14 @@ body {
 
 canvas {
     position: absolute;
+    background-color: #223;
 }
 
 #landing {
     background-color: #0000;
     border: none;
     text-align: center;
+    color: white;
 }
 
 #landing::backdrop {

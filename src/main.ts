@@ -1,10 +1,10 @@
 import './style.css';
 import { initializeApp } from 'firebase/app'
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'
-import { DatabaseReference, getDatabase, ref, set, onDisconnect, onChildAdded, onValue, } from 'firebase/database';
+import { DatabaseReference, getDatabase, ref, set, onDisconnect, onChildAdded, onValue, get } from 'firebase/database'
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCYMgsV8GEJZIaD5v5VthLHxdNddKHfsus",
+  apiKey: import.meta.env.VITE_API_KEY,
   authDomain: "party-tetris.firebaseapp.com",
   projectId: "party-tetris",
   storageBucket: "party-tetris.appspot.com",
@@ -22,6 +22,12 @@ const database = getDatabase(app);
 
 let playerRef: DatabaseReference;
 let playerId: string;
+let garbageRef: DatabaseReference;
+
+let target = "";
+
+let inGame = false;
+
 let username: string;
 
 const appDiv = <HTMLElement>document.getElementById('app');
@@ -32,7 +38,7 @@ const ctx = <CanvasRenderingContext2D>canvas.getContext("2d");
 let height = 20;
 let width = 10;
 const ts = 20;
-const colors: string[] = ["#000", "#e55", "#e95", "#ec5", "#5e5", "#5ce", "#55e", "#c5e"];
+const colors: string[] = ["#000", "#e55", "#e95", "#ec5", "#5e5", "#5ce", "#55e", "#c5e", "#666"];
 
 let matrix: number[][] = [];
 
@@ -53,9 +59,11 @@ let players: {[index: string]: {
   matrix?: number[][];
 }} = {};
 
-let controls = (dt: number) => {};
+let controls: (dt: number)=>void = () => {};
 
 let threshold = 0.7;
+
+let garbageQueue: number[] = [];
 
 let gravity = 0;
 let gacc = 0;
@@ -63,6 +71,11 @@ let gacc = 0;
 let oldTime: number;
 function loop(time: number) {
   requestAnimationFrame(loop);
+      
+  ctx.save();
+  ctx.resetTransform();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
 
   let dt: number;
   if (oldTime) {
@@ -72,6 +85,17 @@ function loop(time: number) {
   }
   oldTime = time;
 
+  ctx.fillStyle = "#0008";
+  ctx.fillRect(0, 0, width * ts, height * ts);
+  for (let i = 0; i < matrix.length; i++) {
+    for (let j = 0; j < matrix[i].length; j++) {
+      if (matrix[i][j] != 0) {
+        ctx.fillStyle = colors[matrix[i][j]];
+        ctx.fillRect(ts * i, ts * (height - j - 1), ts, ts);
+      }
+    }
+  }
+
   controls(dt);
 
   let i = 0;
@@ -80,10 +104,19 @@ function loop(time: number) {
     const player = players[id];
     if (!player.matrix) continue;
     ctx.save();
-    ctx.translate(ts*(width+5), i*ts*height);
+    ctx.translate(ts*(width+5), 0);
     ctx.scale(.5, .5);
+    ctx.translate(0, i*ts*(height+2));
     ctx.fillStyle = "#0008";
+    if (id === target) {
+      ctx.strokeStyle = "#ff0"
+      ctx.strokeRect(0, 0, width * ts, height * ts);
+    }
     ctx.fillRect(0, 0, width * ts, height * ts);
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.font = "1.5rem sans-serif";
+    ctx.fillText(player.username, width*ts/2, (height+1) * ts);
     for (let i = 0; i < player.matrix.length; i++) {
       for (let j = 0; j < player.matrix[i].length; j++) {
         if (player.matrix[i][j] != 0) {
@@ -99,6 +132,21 @@ function loop(time: number) {
 }
 requestAnimationFrame(loop);
 
+setInterval(()=>{
+  const targets: string[] = [];
+  for (const id in players) {
+    if (id === playerId) continue;
+    targets.push(id);
+  }
+  target = targets[Math.floor(Math.random()*targets.length)];
+}, 5000);
+
+function sendGarbage(amount: number) {
+  const targetRef = ref(database, `garbage/${target}`);
+  set(targetRef, {
+    amount: amount,
+  });
+}
 
 function init() {
   const playersRef = ref(database, 'players');
@@ -107,6 +155,7 @@ function init() {
     ctx.fillText(user.username, 50, 50);
     players[user.id] = user;
     if (user.id == playerId) {
+      inGame = true;
       function updatePlayer() {
         let pm = structuredClone(matrix);
         player.getCoords().forEach(coords => {
@@ -233,6 +282,7 @@ function init() {
           this.y = 21;
           this.rotation = 0;
 
+          let lines = 0;
           for (let i = 0; i < height; i++) {
             let check = true;
             for (let j = 0; j < width; j++) {
@@ -246,11 +296,37 @@ function init() {
                 matrix[j].splice(i, 1);
                 matrix[j].push(0);
               }
+              lines++;
               i--;
             }
           }
-          
-          
+          for (let i = 0; i < garbageQueue.length; i++) {
+            const amount = garbageQueue[0];
+            if (amount === undefined) continue;
+            const column = Math.floor(Math.random()*width);
+            for (let i = 0; i < width; i++) {
+              let add;
+              if (column === i) {
+                add = 0;
+              } else {
+                add = 8;
+              }
+              for (let j = 0; j < amount; j++) {
+                matrix[i].splice(0, 0, add);
+                matrix[i].pop();
+              }
+            }
+            garbageQueue.splice(0, 1);
+          }
+
+          if (this.colliding()) {
+            inGame = false;
+            window.removeEventListener("keydown", keydown);
+            window.removeEventListener("keyup", keyup);
+            controls = ()=>{};
+          }
+          this.timer = 0;
+          sendGarbage(lines);
         }
         rotate(r: number) {
           if (Math.abs(r) == 1) {
@@ -327,7 +403,7 @@ function init() {
         acc: 0,
       };
       let keys: { [index: string]: boolean } = {};
-      window.addEventListener("keydown", (e) => {
+      function keydown(e: KeyboardEvent) {
         const key = e.key.toLowerCase();
         keys[key] = true;
         if (e.repeat) return;
@@ -384,15 +460,16 @@ function init() {
               queue[i] = getBag();
             }
         }
-      });
-      window.addEventListener("keyup", (e) => {
+      }
+      function keyup(e: KeyboardEvent) {
         const key = e.key.toLowerCase();
         keys[key] = false;
         if (key == "arrowright" && md.direction == 1 || key == "arrowleft" && md.direction == -1) {
           md.direction = 0;
         }
-      });
-
+      }
+      window.addEventListener("keydown", keydown);
+      window.addEventListener("keyup", keyup);
       
       controls = (dt) => {
         if (gravity != 0) {
@@ -403,25 +480,15 @@ function init() {
           }
         }
       
-        ctx.save();
-        ctx.resetTransform();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.restore();
-      
         if (keys.arrowdown) {
           player.move(0, -player.y - 1);
         }
-      
-        ctx.fillStyle = "#0008";
-        ctx.fillRect(0, 0, width * ts, height * ts);
-        for (let i = 0; i < matrix.length; i++) {
-          for (let j = 0; j < matrix[i].length; j++) {
-            if (matrix[i][j] != 0) {
-              ctx.fillStyle = colors[matrix[i][j]];
-              ctx.fillRect(ts * i, ts * (height - j - 1), ts, ts);
-            }
-          }
+        ctx.fillStyle = "#cc5";
+        let sum = 0;
+        for (let i = 0; i < garbageQueue.length; i++) {
+          sum += garbageQueue[i];
         }
+        ctx.fillRect(-ts/2, (height-sum)*ts, ts/2, sum*ts);
       
         for (let i = 0; i < queue.length; i++) {
           let tetromino = new Tetromino(queue[i], 12, i * 3 + height - queue.length*3, false);
@@ -472,28 +539,40 @@ function init() {
   onValue(playersRef, (snapshot) => {
     players = snapshot.val();
   });
+
+  onValue(garbageRef, (snapshot) => {
+    if (inGame) {
+      garbageQueue.push(snapshot.val().amount);
+    }
+  });
 }
 
 onAuthStateChanged(auth, (user) => {
-  console.log(user);
   if (user) {
     playerId = user.uid;
     playerRef = ref(database, `players/${playerId}`);
+    garbageRef = ref(database, `garbage/${playerId}`);
 
     (landing.children[0] as HTMLFormElement).addEventListener("submit", () => {
       username = (landing.children[0].children[1] as HTMLInputElement).value
       landing.close();
 
-      set(playerRef, {
-        id: playerId,
-        username: username,
-        inGame: true,
+      get(playerRef).then(() => {
+        onDisconnect(playerRef).remove();
+        onDisconnect(garbageRef).remove();
+
+        set(playerRef, {
+          id: playerId,
+          username: username,
+          inGame: false,
+        });
+        set(garbageRef, {
+          amount: 0,
+        });
+
+        init();
       });
-
-      init();
     });
-
-    onDisconnect(playerRef).remove();
   } else {
 
   }

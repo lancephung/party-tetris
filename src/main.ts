@@ -3,6 +3,7 @@ import { initializeApp } from 'firebase/app'
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth'
 import { DatabaseReference, getDatabase, ref, set, onDisconnect, onChildAdded, onValue, get } from 'firebase/database'
 
+// Configure Firebase with correct params
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_API_KEY,
   authDomain: "party-tetris.firebaseapp.com",
@@ -12,12 +13,15 @@ const firebaseConfig = {
   appId: "1:798712934141:web:581245907525aebe3b5894"
 };
 
+// Show landing page
 const landing = <HTMLDialogElement>document.querySelector("#landing");
 landing.showModal();
 
+// Initialize Firebase app
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
+// Get database that contains player info
 const database = getDatabase(app);
 
 let playerRef: DatabaseReference;
@@ -30,11 +34,14 @@ let inGame = false;
 
 let username: string;
 
+// Get app div
 const appDiv = <HTMLElement>document.getElementById('app');
 
+// Create canvas rendering element
 const canvas = document.createElement("canvas");
 const ctx = <CanvasRenderingContext2D>canvas.getContext("2d");
 
+// Define matrix/board parameters
 let height = 20;
 let width = 10;
 const ts = 20;
@@ -42,6 +49,7 @@ const colors: string[] = ["#000", "#e55", "#e95", "#ec5", "#5e5", "#5ce", "#55e"
 
 let matrix: number[][] = [];
 
+// Resize canvas to the entire screen
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -52,6 +60,7 @@ resize();
 
 appDiv.appendChild(canvas);
 
+// Define data structure
 let players: {[index: string]: {
   id: string,
   username: string,
@@ -69,9 +78,12 @@ let gravity = 0;
 let gacc = 0;
 
 let oldTime: number;
+
+// Main game loop
 function loop(time: number) {
   requestAnimationFrame(loop);
-      
+  
+  // Clear canvas
   ctx.save();
   ctx.resetTransform();
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -84,7 +96,9 @@ function loop(time: number) {
     dt = 1 / 60;
   }
   oldTime = time;
+  // Get delta time (time inbetween frames)
 
+  // Draw matrix/board
   ctx.fillStyle = "#0008";
   ctx.fillRect(0, 0, width * ts, height * ts);
   for (let i = 0; i < matrix.length; i++) {
@@ -96,22 +110,28 @@ function loop(time: number) {
     }
   }
 
+  // Run controls
   controls(dt);
 
+  // Draw other players
   let i = 0;
   for (const id in players) {
+    // Ignore client
     if (id === playerId) continue;
     const player = players[id];
     if (!player.matrix) continue;
     ctx.save();
+    // Position player board
     ctx.translate(ts*(width+5), 0);
     ctx.scale(.5, .5);
     ctx.translate(0, i*ts*(height+2));
     ctx.fillStyle = "#0008";
+    // Highlight targeted player
     if (id === target) {
       ctx.strokeStyle = "#ff0"
       ctx.strokeRect(0, 0, width * ts, height * ts);
     }
+    // Draw player board
     ctx.fillRect(0, 0, width * ts, height * ts);
     ctx.fillStyle = "#fff";
     ctx.textAlign = "center";
@@ -133,6 +153,7 @@ function loop(time: number) {
 requestAnimationFrame(loop);
 
 setInterval(()=>{
+  // Select random target every 5 seconds
   const targets: string[] = [];
   for (const id in players) {
     if (id === playerId) continue;
@@ -142,20 +163,29 @@ setInterval(()=>{
 }, 5000);
 
 function sendGarbage(amount: number) {
+  // Send garbage to target player's board
   const targetRef = ref(database, `garbage/${target}`);
   set(targetRef, {
     amount: amount,
   });
 }
 
+// Initialize game logic
 function init() {
+  // Get database reference object
   const playersRef = ref(database, 'players');
+  // Runs when a player joins the game
   onChildAdded(playersRef, (snapshot) => {
     const user = snapshot.val();
     ctx.fillText(user.username, 50, 50);
+    // Update player data structure
     players[user.id] = user;
+
+    // Client logic
     if (user.id == playerId) {
       inGame = true;
+
+      // Update client data in database
       function updatePlayer() {
         let pm = structuredClone(matrix);
         player.getCoords().forEach(coords => {
@@ -169,6 +199,7 @@ function init() {
         })
       }
 
+      // Initialize matrix/board as empty
       for (let i = 0; i < width; i++) {
         matrix[i] = [];
         for (let j = 0; j < height + 20; j++) {
@@ -176,6 +207,7 @@ function init() {
         }
       }
 
+      // Tetromino offsets
       const offsets = [
         [],
         [[0, 0], [1, 0], [0, 1], [-1, 1]],
@@ -187,11 +219,13 @@ function init() {
         [[0, 0], [-1, 0], [1, 0], [0, 1]],
       ];
 
+      // Kick table for SRS
       const kick: { [index: number]: number[][] } = {
         0: [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],
         3: [],
         5: [[0, 0], [-2, 0], [1, 0], [-2, -1], [1, 2]],
       };
+
 
       class Tetromino {
         x: number;
@@ -206,6 +240,7 @@ function init() {
           this.type = type;
           if (round != undefined) this.round = round;
         }
+        // Get global offsets of minos
         getCoords(): { x: number, y: number }[] {
           if (this.rotation < 0) {
             this.rotation = 4 - Math.abs(this.rotation % 4);
@@ -233,6 +268,7 @@ function init() {
 
           return list;
         }
+        // Draw tetromino instance
         draw(color?: string) {
           const coords = this.getCoords();
           for (let i = 0; i < coords.length; i++) {
@@ -240,6 +276,7 @@ function init() {
             ctx.fillRect((coords[i].x) * ts, (height - coords[i].y - 1) * ts, ts, ts);
           }
         }
+        // Check if the tetromino is colliding with anything on the board
         colliding(): boolean {
           const coords = this.getCoords();
           // console.log(coords);
@@ -250,6 +287,7 @@ function init() {
           }
           return false;
         }
+        // Move x and y units until it collided with something
         move(x: number, y: number) {
           for (let i = 0; i < Math.abs(x); i++) {
             this.x += Math.sign(x);
@@ -270,18 +308,23 @@ function init() {
           }
           
         }
+        // Place tetromino and update board
         place() {
+          // Move tetromino to bottom
           this.move(0, -this.y - 1);
+          // Update board
           const coords = this.getCoords();
           for (let i = 0; i < coords.length; i++) {
             matrix[coords[i].x][coords[i].y] = this.type;
           }
+          // Get next queue piece
           this.type = queue.pop() as number;
           queue.splice(0, 0, getBag());
           this.x = 4;
           this.y = 21;
           this.rotation = 0;
 
+          // Check if any rows are filled
           let lines = 0;
           for (let i = 0; i < height; i++) {
             let check = true;
@@ -291,6 +334,7 @@ function init() {
                 break;
               }
             }
+            // Calculate # garbage lines sent
             if (check) {
               for (let j = 0; j < width; j++) {
                 matrix[j].splice(i, 1);
@@ -300,6 +344,8 @@ function init() {
               i--;
             }
           }
+
+          // Add own garbage
           for (let i = 0; i < garbageQueue.length; i++) {
             const amount = garbageQueue[0];
             if (amount === undefined) continue;
@@ -319,6 +365,7 @@ function init() {
             garbageQueue.splice(0, 1);
           }
 
+          // Exit game if dead
           if (this.colliding()) {
             inGame = false;
             window.removeEventListener("keydown", keydown);
@@ -328,6 +375,7 @@ function init() {
           this.timer = 0;
           sendGarbage(lines);
         }
+        // SRS rotation
         rotate(r: number) {
           if (Math.abs(r) == 1) {
             this.rotation += r;
@@ -337,6 +385,7 @@ function init() {
             } else {
               kicks = kick[0];
             }
+            // Calculate and go through each kick position
             for (let i = 0; i < kicks.length; i++) {
               let state;
               if (r < 0) state = this.rotation % 4;
@@ -378,6 +427,8 @@ function init() {
         }
       }
 
+      // 7-bag functionality
+      // Prevents too much RNG, allows for more planning strategy
       let hold: number | undefined = undefined;
       const queue: number[] = [];
       let bag = [1, 2, 3, 4, 5, 6, 7];
@@ -397,6 +448,7 @@ function init() {
         queue.splice(0, 0, getBag());
       }
 
+      // Handle key inputs
       let md = {
         direction: 0,
         time: document.timeline.currentTime as number,
@@ -431,6 +483,7 @@ function init() {
             player.move(-1, 0);
             break;
           case "c":
+            // Hold functionality
             if (hold) {
               let save = player.type;
               player.type = hold;
@@ -444,21 +497,6 @@ function init() {
             player.y = 21;
             player.rotation = 0;
             break;
-          case "r":
-            for (let i = 0; i < width; i++) {
-              for (let j = 0; j < height + 20; j++) {
-                matrix[i][j] = 0;
-              }
-            }
-            hold = undefined;
-            bag = [1, 2, 3, 4, 5, 6, 7];
-            player.type = getBag();
-            player.x = 4;
-            player.y = 21;
-            player.rotation = 0;
-            for (let i = 0; i < queue.length; i++) {
-              queue[i] = getBag();
-            }
         }
       }
       function keyup(e: KeyboardEvent) {
@@ -471,6 +509,7 @@ function init() {
       window.addEventListener("keydown", keydown);
       window.addEventListener("keyup", keyup);
       
+      // Handle controls
       controls = (dt) => {
         if (gravity != 0) {
           gacc += dt;
@@ -483,6 +522,7 @@ function init() {
         if (keys.arrowdown) {
           player.move(0, -player.y - 1);
         }
+        // Draw garbage queue
         ctx.fillStyle = "#cc5";
         let sum = 0;
         for (let i = 0; i < garbageQueue.length; i++) {
@@ -490,10 +530,12 @@ function init() {
         }
         ctx.fillRect(-ts/2, (height-sum)*ts, ts/2, sum*ts);
       
+        // Draw tetromino queue
         for (let i = 0; i < queue.length; i++) {
           let tetromino = new Tetromino(queue[i], 12, i * 3 + height - queue.length*3, false);
           tetromino.draw();
         }
+        // Draw hold tetromino
         if (hold) {
           let tetromino = new Tetromino(hold, -3, height - 2, false);
           tetromino.draw();
@@ -509,6 +551,7 @@ function init() {
           md.acc = 0;
         }
       
+        // Draw ghost
         ghost.type = player.type;
         ghost.rotation = player.rotation;
         ghost.x = player.x;
@@ -517,6 +560,7 @@ function init() {
         ghost.draw("#fff8");
         player.draw();
       
+        // Show highlight when grounded
         player.y--;
         if (player.colliding()) {
           player.timer += dt;
@@ -536,10 +580,12 @@ function init() {
     }
   });
 
+  // Update playeer data structure
   onValue(playersRef, (snapshot) => {
     players = snapshot.val();
   });
 
+  // Update garbage data structure
   onValue(garbageRef, (snapshot) => {
     if (inGame) {
       garbageQueue.push(snapshot.val().amount);
@@ -548,11 +594,13 @@ function init() {
 }
 
 onAuthStateChanged(auth, (user) => {
+  // Make sure user has authentication
   if (user) {
     playerId = user.uid;
     playerRef = ref(database, `players/${playerId}`);
     garbageRef = ref(database, `garbage/${playerId}`);
 
+    // Wait until landing is completed
     (landing.children[0] as HTMLFormElement).addEventListener("submit", () => {
       username = (landing.children[0].children[1] as HTMLInputElement).value
       landing.close();
@@ -574,10 +622,11 @@ onAuthStateChanged(auth, (user) => {
       });
     });
   } else {
-
+    // No auth, can't join game
   }
 });
 
+// Authorize anonymous user w/ Firebase
 signInAnonymously(auth).catch((error) => {
   console.error(error);
 });
